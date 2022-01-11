@@ -31,7 +31,7 @@ const VAR_An = SVector{VAR_order, SMatrix{nfeatures, nfeatures, Float32}}([VAR_p
 Transform data from standard normal to the measured distributions
 """
 function Γinv(x::SVector{4, Float32})
-    @inbounds (exp(polyval(Γcoefs_[i], x[i])) for i in 1:nfeatures)
+    exp.(polyval.(Γcoefs_, x))
 end
 
 const μ0_ = Γinv(zeros(SVector{4, Float32}))
@@ -92,9 +92,9 @@ Return r such that (1-r) ⋅ LRSpoly + r ⋅ HHRSpoly intersects I,V
 used for switching along transition curves
 """
 function r(I::Float32, V::Float32)
-    IHRS_V = polyval(HHRSpoly, V)
-    ILRS_V = polyval(LLRSpoly, V)
-    (I - ILRS_V) / (IHRS_V - ILRS_V)
+    IHHRS_V = polyval(HHRSpoly, V)
+    ILLRS_V = polyval(LLRSpoly, V)
+    (I - ILLRS_V) / (IHHRS_V - ILLRS_V)
 end
 
 
@@ -107,7 +107,7 @@ Istate(c::CellState, U::Float32) = Istate(c.r, U)
 
 IHRS(c::CellState, U::Float32) = Istate(r(HRS(c)), U)
 
-ILRS(c::CellState, U::Float32) = Istate(mikingRatio(LRS(c)), U)
+ILRS(c::CellState, U::Float32) = Istate(r(LRS(c)), U)
 
 """
 Return coefficients of the second degree polynomial that connects (x1,y1) to (x2,y2)

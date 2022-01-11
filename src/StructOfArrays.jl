@@ -143,6 +143,8 @@ Current as a function of voltage for the cell state
 
 # TODO: wouldn't this be better? problem is just that the orders of the polynomials are different
 # polyval(1-r * LLRSpoly + r * HHRSpoly, U)
+
+# I think only the second one is needed (does both)
 """
 function Istate(r::AbstractArray{Float32, 1}, U::AbstractArray{Float32, 1})
     (1 .- r) .* polyval(LLRSpoly, U) .+ r .* polyval(HHRSpoly, U)
@@ -240,7 +242,6 @@ function applyVoltage!(c, U::AbstractArray{Float32, 1})
 
     if any(c.transCalcMask)
         x1 = c.UR
-        # Combine these two into one call?
         y1 = Istate(c.r, x1)
         y2 = Istate(r.(c.y[iHRS, :]), Umax)
         c.resetPoly .= ifelse.(c.transCalcMask, transitionParabola(x1, y1, y2), c.resetPoly)
