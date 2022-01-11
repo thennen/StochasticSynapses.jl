@@ -8,10 +8,12 @@ using Git
 using Dates
 using LinearAlgebra
 
-function CellArrayCPU_cycling(M::Int=2^12, N::Int=2^8, p::Int=2^4, vset=-1.5f0, vreset=1.5f0)
+function CellArrayCPU_cycling(cells::CellArrayCPU, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
     Random.seed!(1)
     nthreads = @show BLAS.get_num_threads()
-    cells = CellArrayCPU(M, p)
+    # cells = CellArrayCPU(M, p)
+    M = cells.M
+    p = cells.p
     voltages = repeat([vset vreset], M, N)
     bench = @benchmark begin
                 @inbounds begin
@@ -25,9 +27,11 @@ function CellArrayCPU_cycling(M::Int=2^12, N::Int=2^8, p::Int=2^4, vset=-1.5f0, 
     return cells
 end
 
-function CellArrayCPU_readout(M::Int=2^12, p::Int=2^4)
+function CellArrayCPU_readout(cells::CellArrayCPU)
     nthreads = @show BLAS.get_num_threads()
-    cells = CellArrayCPU(M, p)
+    #cells = CellArrayCPU(M, p)
+    M = cells.M
+    p = cells.p
     # Read repeatedly, results go into readout buffer cells.
     bench = @benchmark Ireadout($cells)
     display(bench)
@@ -35,10 +39,12 @@ function CellArrayCPU_readout(M::Int=2^12, p::Int=2^4)
     return cells
 end
 
-function CellArrayGPU_cycling(M::Int=2^12, N::Int=2^8, p::Int=2^4, vset=-1.5f0, vreset=1.5f0, device=1)
+function CellArrayGPU_cycling(cells::CellArrayGPU, N::Int=2^8, vset=-1.5f0, vreset=1.5f0, device=1)
     CUDA.device!(device)
     Random.seed!(1)
-    cells = CellArrayGPU(M, p)
+    #cells = CellArrayGPU(M, p)
+    M = cells.M
+    p = cells.p
     voltages = CuArray(repeat([vset vreset], M, N))
     bench = @benchmark begin
                 CUDA.@sync begin
@@ -54,20 +60,24 @@ function CellArrayGPU_cycling(M::Int=2^12, N::Int=2^8, p::Int=2^4, vset=-1.5f0, 
     return cells
 end
 
-function CellArrayGPU_readout(M::Int=2^12, p::Int=2^4, device=1)
+function CellArrayGPU_readout(cells::CellArrayGPU, device=1)
     CUDA.device!(device)
-    cells = CellArrayGPU(M, p)
+    #cells = CellArrayGPU(M, p)
+    M = cells.M
+    p = cells.p
     bench = @benchmark CUDA.@sync Ireadout($cells)
     display(bench)
     write_benchmark(bench, :M=>M, :p=>p, :device=>CUDA.name(CUDA.device()))
     return cells
 end
 
-function Cell_cycling(M::Int=2^12, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
+function Cell_cycling(cells::Vector{StochasticSynapses.CellState}, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
     # To set nthreads, Julia needs to be started with Julia -t
     nthreads = @show Threads.nthreads()
     Random.seed!(1)
-    cells = [Cell() for n in 1:M]
+    # cells = [Cell() for n in 1:M]
+    M = length(cells)
+    p = StochasticSynapses.VAR_order
     # Full set/reset (transition parabola never gets calculated)
     voltages = repeat([vset vreset], M, N)
     #currents = similar(voltages)
@@ -84,14 +94,15 @@ function Cell_cycling(M::Int=2^12, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
                 end
             end
     show(b)
-    p = StochasticSynapses.VAR_order
     write_benchmark(bench, :M=>M, :N=>N, :p=>p, :vset=>vset, :vreset=>vreset, :nthreads=>nthreads)
     return cells
 end
 
-function Cell_readout(M::Int=2^12)
+function Cell_readout(cells::Vector{StochasticSynapses.CellState})
     nthreads = @show Threads.nthreads()
-    cells = [Cell() for n in 1:M]
+    #cells = [Cell() for n in 1:M]
+    M = length(cells)
+    p = StochasticSynapses.VAR_order
     currents = Vector{Float32}(undef, M)
     bench = @benchmark begin
                 @inbounds begin
@@ -101,7 +112,6 @@ function Cell_readout(M::Int=2^12)
                 end
             end
     display(bench)
-    p = StochasticSynapses.VAR_order
     write_benchmark(bench, :M=>M, :p=>p, :nthreads=>nthreads)
     return cells
 end
@@ -123,7 +133,8 @@ function write_benchmark(benchmark, meta...)
     for m in meta
         j[1][String(m[1])] = m[2]
     end
-    fp = joinpath(folder, "$(timestamp)_$(caller)_gitrev_$(gitrev).json")
+    j[1]["gitrev"] = gitrev
+    fp = joinpath(folder, "$(timestamp)_$(caller).json")
     open(fp,"w") do f
         JSON.print(f, j)
     end
@@ -132,12 +143,16 @@ end
 function run_benchmarks()
     N = 1
     p = 10
+    device = 1
+    CUDA.device!(device)
     for M in 2 .^ (8:26)
+        @show M N p
+        CPUcells = CellArrayCPU(M, p)
+        GPUcells = CellArrayGPU(M, p)
         # One cycle should be enough?
-        # Wasteful because cells get initialized twice..
-        CellArrayCPU_cycling(M, N, p, -1.5f0, 1.5f0)
-        CellArrayCPU_readout(M, p)
-        CellArrayGPU_cycling(M, N, p, -1.5f0, 1.5f0)
-        CellArrayCPU_readout(M, p)
+        CellArrayCPU_cycling(CPUcells, N, -1.5f0, 1.5f0)
+        CellArrayCPU_readout(CPUcells)
+        CellArrayGPU_cycling(GPUcells, N, -1.5f0, 1.5f0, device)
+        CellArrayGPU_readout(GPUcells, device)
     end
 end
