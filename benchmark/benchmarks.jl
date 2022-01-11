@@ -1,5 +1,6 @@
 using BenchmarkTools
 using CUDA
+using JSON
 using StochasticSynapses
 using Random
 using Base.Threads
@@ -125,5 +126,18 @@ function write_benchmark(benchmark, meta...)
     fp = joinpath(folder, "$(timestamp)_$(caller)_gitrev_$(gitrev).json")
     open(fp,"w") do f
         JSON.print(f, j)
+    end
+end
+
+function run_benchmarks()
+    N = 1
+    p = 10
+    for M in 2 .^ (8:26)
+        # One cycle should be enough?
+        # Wasteful because cells get initialized twice..
+        CellArrayCPU_cycling(M, N, p, -1.5f0, 1.5f0)
+        CellArrayCPU_readout(M, p)
+        CellArrayGPU_cycling(M, N, p, -1.5f0, 1.5f0)
+        CellArrayCPU_readout(M, p)
     end
 end
