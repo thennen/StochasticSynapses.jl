@@ -21,7 +21,7 @@ using Parameters: @with_kw, @unpack
 ## Speed benefit from having some of the parameters in a different form (StaticArrays)
 const Γcoefs_ = SVector{nfeatures, SVector{Γorder, Float32}}([Γcoefs[i,:] for i in 1:nfeatures])
 const L_ = SMatrix{nfeatures, nfeatures, Float32}(params["L"]) * Lscale
-const VAR_order = 20
+const VAR_order = 10
 const VAR_params = params["VAR$(VAR_order)_model_parameters_Lamprey"]
 const VAR_intercept = SVector{nfeatures, Float32}(VAR_params[1, :])
 const VAR_L = SMatrix{nfeatures, nfeatures, Float32}(VAR_params[2:5, :])

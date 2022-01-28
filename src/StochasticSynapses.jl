@@ -27,12 +27,11 @@ const Ustatic = Float32(0.2)
 const G_HHRS = polyval(HHRSpoly, Ustatic) / Ustatic
 const G_LLRS = polyval(LLRSpoly, Ustatic) / Ustatic
 const Γcoefs = Array{Float32}(params["polynomial_flows"])
-const nfeatures = size(Γcoefs)[1] # keep as Int64 if used to initialize static arrays
+const nfeatures = size(Γcoefs)[1]
 const Γorder = size(Γcoefs)[2]
 const iHRS, iUS, iLRS, iUR = (Int64(i) for i in 1:nfeatures)
 const Lscale = Float32(1)
 const L = Array{Float32}(params["L"] * Lscale)
-
 
 """
 Return r such that (1-r) ⋅ LRSpoly + r ⋅ HHRSpoly has static resistance R = Ustatic/I(Ustatic)
@@ -40,7 +39,6 @@ Return r such that (1-r) ⋅ LRSpoly + r ⋅ HHRSpoly has static resistance R = 
 function r(R::Float32)
     (G_LLRS - 1/R) / (G_LLRS - G_HHRS)
 end
-
 
 include("StructOfArrays.jl")
 include("ArrayOfStructs.jl")
