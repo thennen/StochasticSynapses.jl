@@ -161,8 +161,11 @@ function run_arrayofstruct_benchmarks()
     vmax = 1.5f0
     for M in 2 .^ (25:30)
         @show M N StochasticSynapses.VAR_order
+        print("Initializing cells...")
         cells = [Cell() for n in 1:M]
+        print("Cycling cells...")
         Cell_cycling(cells, N, -1.5f0, vmax)
+        print("Reading out cells...")
         Cell_readout(cells)
     end
 end

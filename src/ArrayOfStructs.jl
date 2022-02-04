@@ -20,12 +20,16 @@ using Parameters: @with_kw, @unpack
 
 ## Speed benefit from having some of the parameters in a different form (StaticArrays)
 const Γcoefs_ = SVector{nfeatures, SVector{Γorder, Float32}}([Γcoefs[i,:] for i in 1:nfeatures])
+
 const L_ = SMatrix{nfeatures, nfeatures, Float32}(params["L"]) * Lscale
 const VAR_order = 10
 const VAR_params = params["VAR$(VAR_order)_model_parameters_Lamprey"]
 const VAR_intercept = SVector{nfeatures, Float32}(VAR_params[1, :])
 const VAR_L = SMatrix{nfeatures, nfeatures, Float32}(VAR_params[2:5, :])
 const VAR_An = SVector{VAR_order, SMatrix{nfeatures, nfeatures, Float32}}([VAR_params[6+4*(n-1):6+4*(n-1)+3, :] for n in 1:VAR_order])
+
+const LLRSpoly_ = SVector{2, Float32}(LLRSpoly)
+const HHRSpoly_ = SVector{6, Float32}(HHRSpoly)
 
 """
 Transform data from standard normal to the measured distributions
@@ -43,10 +47,10 @@ Stores the state of each individual cell
 Remembers history of n=order cycles
 """
 @with_kw mutable struct CellState
-    X::MVector{VAR_order, SVector{nfeatures, Float32}} = [zeros(nfeatures) for n in 1:VAR_order]
-    y::MVector{nfeatures, Float32} = zeros(nfeatures)
-    s::SVector{nfeatures, Float32} = zeros(nfeatures)
-    transitionPoly::Vector{Float32} = zeros(3)
+    X::MVector{VAR_order, SVector{nfeatures, Float32}} = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
+    y::SVector{nfeatures, Float32} = SVector{nfeatures, Float32}(undef)
+    s::SVector{nfeatures, Float32} = ones(SVector{nfeatures, Float32})
+    transitionPoly::SVector{3, Float32} = zeros(SVector{3, Float32})
     r::Float32 = 1
     n::UInt64 = 0
     UR::Float32 = 0
@@ -54,17 +58,22 @@ Remembers history of n=order cycles
     inLRS::Bool = false
 end
 
+
 """
 Return a cell initialized in the HRS state.
 """
 function Cell()
-    c = CellState()
-    c.s = Γinv(SVector{nfeatures, Float32}(L_*randn(nfeatures))) ./ μ0_
-    c.X[1] = VAR_sample(c)
-    c.y .= Γinv(c.X[1]) .* c.s
-    c.r = r(HRS(c))
-    c.inHRS = true
-    c.inLRS = false
+    #x = VAR_L * randn(Float32, nfeatures) + VAR_intercept
+    x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
+    X::MVector{VAR_order, SVector{nfeatures, Float32}}  = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
+    X[1] = x
+    s = Γinv(L_ * randn(SVector{nfeatures, Float32})) ./ μ0_
+    y = Γinv(x) .* s
+    r0 = r(y[iHRS])
+    transitionPoly = zeros(SVector{3, Float32})
+    c = CellState(X=X, y=y, s=s, r=r0)
+    #c.inHRS = true
+    #c.inLRS = false
     return c
 end
 
@@ -72,7 +81,8 @@ end
 Generate the next VAR vector
 """
 function VAR_sample(c::CellState)
-    x = VAR_L * randn(Float32, nfeatures) + VAR_intercept
+    #x = VAR_L * randn(Float32, nfeatures) + VAR_intercept
+    x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
     for i in 1:VAR_order
         j = mod(c.n + 1 - i, VAR_order) + 1
         @inbounds x += VAR_An[i] * c.X[j]
@@ -92,8 +102,8 @@ Return r such that (1-r) ⋅ LRSpoly + r ⋅ HHRSpoly intersects I,V
 used for switching along transition curves
 """
 function r(I::Float32, V::Float32)
-    IHHRS_V = polyval(HHRSpoly, V)
-    ILLRS_V = polyval(LLRSpoly, V)
+    IHHRS_V = polyval(HHRSpoly_, V)
+    ILLRS_V = polyval(LLRSpoly_, V)
     (I - ILLRS_V) / (IHHRS_V - ILLRS_V)
 end
 
@@ -101,7 +111,7 @@ end
 """
 Current as a function of voltage for the cell state
 """
-Istate(r::Float32, U::Float32) = (1-r) * polyval(LLRSpoly, U) + r * polyval(HHRSpoly, U)
+Istate(r::Float32, U::Float32) = (1-r) * polyval(LLRSpoly_, U) + r * polyval(HHRSpoly_, U)
 
 Istate(c::CellState, U::Float32) = Istate(c.r, U)
 
@@ -130,7 +140,8 @@ function transitionParabola(x₁::Float32, y₁::Float32, y₂::Float32)
     #    b = -2x₁ * a
     #    c = (x₁² * y₂ - 2*x₁x₂*y₁ + x₂² * y₁) / den
     #end
-    return (a, b, c)
+    #return (a, b, c)
+    return SVector{3, Float32}(a, b, c)
 end
 
 """
@@ -162,15 +173,15 @@ function applyVoltage!(c::CellState, U::Float32)
             c.n += 1
             @inbounds c.X[mod(c.n, VAR_order) + 1] = x
             if full
-                c.y .= Γinv(x) .* c.s
+                c.y = Γinv(x) .* c.s
             else
                 # We will need the updated transition poly
                 x1 = UR(c)
                 x2 = Umax
                 y1 = Istate(c, x1)
-                c.y .= Γinv(x) .* c.s
+                c.y = Γinv(x) .* c.s
                 y2 = IHRS(c, x2)
-                c.transitionPoly .= transitionParabola(x1,y1,y2)
+                c.transitionPoly = transitionParabola(x1,y1,y2)
             end
         end
 
