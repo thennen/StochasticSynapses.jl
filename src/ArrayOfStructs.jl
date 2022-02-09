@@ -48,11 +48,11 @@ Remembers history of n=order cycles
 """
 @with_kw mutable struct CellState
     X::MVector{VAR_order, SVector{nfeatures, Float32}} = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
-    y::SVector{nfeatures, Float32} = SVector{nfeatures, Float32}(undef)
+    y::SVector{nfeatures, Float32} = zeros(SVector{nfeatures, Float32})
     s::SVector{nfeatures, Float32} = ones(SVector{nfeatures, Float32})
     transitionPoly::SVector{3, Float32} = zeros(SVector{3, Float32})
     r::Float32 = 1
-    n::UInt64 = 0
+    n::UInt32 = 0
     UR::Float32 = 0
     inHRS::Bool = true
     inLRS::Bool = false

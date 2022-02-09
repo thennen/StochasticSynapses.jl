@@ -67,6 +67,14 @@ function CellArrayGPU_readout(cells::CellArrayGPU, device=1)
     return cells
 end
 
+function Cell_init(M::Int)
+    nthreads = @show Threads.nthreads()
+    p = StochasticSynapses.VAR_order
+    bench = @benchmark cells = [Cell() for i in 1:M]
+    display(bench)
+    write_benchmark(bench, :M=>M, :p=>p, :nthreads=>nthreads)
+end
+
 function Cell_cycling(cells::Vector{StochasticSynapses.CellState}, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
     # To set nthreads, Julia needs to be started with Julia -t
     nthreads = @show Threads.nthreads()
@@ -159,7 +167,7 @@ function run_arrayofstruct_benchmarks()
     # This version can not take p as input yet
     N = 1
     vmax = 1.5f0
-    for M in 2 .^ (25:30)
+    for M in 2 .^ (8:30)
         @show M N StochasticSynapses.VAR_order
         print("Initializing cells...")
         cells = [Cell() for n in 1:M]

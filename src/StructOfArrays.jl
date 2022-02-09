@@ -82,7 +82,6 @@ function polyval(coeffs::AbstractArray{Float32, 1}, U::AbstractArray{Float32})
     for c in coeffs
         acc .= acc .* U .+ c
     end
-    #acc*U
     acc
 end
 
@@ -129,7 +128,6 @@ end
 """
 Return r such that (1-r) ⋅ LRSpoly + r ⋅ HHRSpoly intersects I,V
 used for switching along transition curves
-    TODO test if this can be broadcasted
 """
 function r(I::AbstractArray{Float32, 1}, V::AbstractArray{Float32, 1})
     IHHRS_V = polyval(HHRSpoly, V)
@@ -146,9 +144,11 @@ Current as a function of voltage for the cell state
 
 # I think only the second one is needed (does both)
 """
+#=
 function Istate(r::AbstractArray{Float32, 1}, U::AbstractArray{Float32, 1})
     (1 .- r) .* polyval(LLRSpoly, U) .+ r .* polyval(HHRSpoly, U)
 end
+=#
 
 function Istate(r::AbstractArray{Float32, 1}, U)
     (1 .- r) .* polyval(LLRSpoly, U) .+ r .* polyval(HHRSpoly, U)
