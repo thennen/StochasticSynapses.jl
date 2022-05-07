@@ -17,6 +17,7 @@ TODO:
 
 using StaticArrays: SVector, SMatrix, MVector, MMatrix
 using Parameters: @with_kw, @unpack
+using Setfield
 
 ## Speed benefit from having some of the parameters in a different form (StaticArrays)
 const Γcoefs_ = SVector{nfeatures, SVector{Γorder, Float32}}([Γcoefs[i,:] for i in 1:nfeatures])
@@ -46,8 +47,9 @@ const μ0_ = Γinv(zeros(SVector{4, Float32}))
 Stores the state of each individual cell
 Remembers history of n=order cycles
 """
-@with_kw mutable struct CellState
-    X::MVector{VAR_order, SVector{nfeatures, Float32}} = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
+@with_kw struct CellState
+    #X::MVector{VAR_order, SVector{nfeatures, Float32}} = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
+    X::SMatrix{nfeatures, VAR_order, Float32} = zeros(SMatrix{VAR_order, nfeatures, Float32})
     y::SVector{nfeatures, Float32} = zeros(SVector{nfeatures, Float32})
     s::SVector{nfeatures, Float32} = ones(SVector{nfeatures, Float32})
     transitionPoly::SVector{3, Float32} = zeros(SVector{3, Float32})
@@ -65,15 +67,17 @@ Return a cell initialized in the HRS state.
 function Cell()
     #x = VAR_L * randn(Float32, nfeatures) + VAR_intercept
     x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
-    X::MVector{VAR_order, SVector{nfeatures, Float32}}  = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
-    X[1] = x
+    X = hcat(x, zeros(SMatrix{nfeatures, VAR_order-1, Float32}))
+    #X = zeros(SMatrix{nfeatures, VAR_order, Float32})
+    #X = SVector(y, [zeros(SVector{nfeatures, Float32}) for n in 2:VAR_order]...)
+    #X = hcat(x, SVector([zeros(SVector{nfeatures, Float32}) for n in 2:VAR_order]...))
+    #X::MVector{VAR_order, SVector{nfeatures, Float32}}  = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
+    #X[1] = x
     s = Γinv(L_ * randn(SVector{nfeatures, Float32})) ./ μ0_
     y = Γinv(x) .* s
     r0 = r(y[iHRS])
     transitionPoly = zeros(SVector{3, Float32})
     c = CellState(X=X, y=y, s=s, r=r0)
-    #c.inHRS = true
-    #c.inLRS = false
     return c
 end
 
@@ -84,8 +88,7 @@ function VAR_sample(c::CellState)
     #x = VAR_L * randn(Float32, nfeatures) + VAR_intercept
     x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
     for i in 1:VAR_order
-        j = mod(c.n + 1 - i, VAR_order) + 1
-        @inbounds x += VAR_An[i] * c.X[j]
+        @inbounds x += VAR_An[i] * c.X[:,i]
     end
     return x
     #return clamp.(x, -σClip, σClip)
@@ -153,10 +156,10 @@ function applyVoltage!(c::CellState, U::Float32)
     if !c.inLRS
         if U < US(c)
             # SET
-            c.r = r(LRS(c))
-            c.inLRS = true
-            c.inHRS = false
-            c.UR = UR(c)
+            @set! c.r = r(LRS(c))
+            @set! c.inLRS = true
+            @set! c.inHRS = false
+            @set! c.UR = UR(c)
             return c
         elseif c.inHRS
             return c
@@ -167,34 +170,34 @@ function applyVoltage!(c::CellState, U::Float32)
     if U > c.UR
         full = U ≥ Umax
         if c.inLRS # First reset
-            c.inLRS = false
+            @set! c.inLRS = false
             # Calculate and store params for next cycle
             x = VAR_sample(c)
-            c.n += 1
-            @inbounds c.X[mod(c.n, VAR_order) + 1] = x
+            @set! c.n += 1
+            @inbounds @set! c.X = hcat(x, c.X[:,1:VAR_order-1])
             if full
-                c.y = Γinv(x) .* c.s
+                @set! c.y = Γinv(x) .* c.s
             else
                 # We will need the updated transition poly
                 x1 = UR(c)
                 x2 = Umax
                 y1 = Istate(c, x1)
-                c.y = Γinv(x) .* c.s
+                @set! c.y = Γinv(x) .* c.s
                 y2 = IHRS(c, x2)
-                c.transitionPoly = transitionParabola(x1,y1,y2)
+                @set! c.transitionPoly = transitionParabola(x1,y1,y2)
             end
         end
 
         if full
             # Full RESET
-            c.r = r(HRS(c))
-            c.inHRS = true
-            c.UR = Umax
+            @set! c.r = r(HRS(c))
+            @set! c.inHRS = true
+            @set! c.UR = Umax
         else
             # Partial RESET
             Itrans = polyval(c.transitionPoly, U)
-            c.r = r(Itrans, U)
-            c.UR = U
+            @set! c.r = r(Itrans, U)
+            @set! c.UR = U
         end
     end
     return c

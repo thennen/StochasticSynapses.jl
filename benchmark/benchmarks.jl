@@ -75,7 +75,8 @@ function Cell_init(M::Int)
     write_benchmark(bench, :M=>M, :p=>p, :nthreads=>nthreads)
 end
 
-function Cell_cycling(cells::Vector{StochasticSynapses.CellState}, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
+#function Cell_cycling(cells::Vector{StochasticSynapses.CellState}, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
+function Cell_cycling(cells, N::Int=2^8, vset=-1.5f0, vreset=1.5f0)
     # To set nthreads, Julia needs to be started with Julia -t
     nthreads = @show Threads.nthreads()
     Random.seed!(1)
@@ -88,7 +89,7 @@ function Cell_cycling(cells::Vector{StochasticSynapses.CellState}, N::Int=2^8, v
                         c = $cells[i]
                         for j in 1:2*$N
                             v = $voltages[i, j]
-                            applyVoltage!(c, v)
+                            $cells[i] = applyVoltage!(c, v)
                         end
                     end
                 end
