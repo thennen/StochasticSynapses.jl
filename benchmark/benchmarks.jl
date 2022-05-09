@@ -141,25 +141,31 @@ end
 
 function run_structofarray_benchmarks()
     N = 1
-    #p = 10
+    p = 10
     vmax = 1.5f0
     device = 1
     CUDA.device!(device)
 
-    for p in [1, 10, 20, 40, 60, 80, 90, 100]
-        for M in 2 .^ (8:25)
+    CPU = false
+
+    #for p in [1, 10, 20, 40, 60, 80, 90, 100]
+        for M in 2 .^ (8:26)
             @show M N p
-            CPUcells = CellArrayCPU(M, p)
-            CellArrayCPU_cycling(CPUcells, N, -1.5f0, vmax)
-            CellArrayCPU_readout(CPUcells)
+
+            if CPU
+                CPUcells = CellArrayCPU(M, p)
+                CellArrayCPU_cycling(CPUcells, N, -1.5f0, vmax)
+                CellArrayCPU_readout(CPUcells)
+            end
+
             # More likely to run out of memory
-            if M*p <= 2^25
+            #if M*p <= 2^25
                 GPUcells = CellArrayGPU(M, p)
                 CellArrayGPU_cycling(GPUcells, N, -1.5f0, vmax, device)
                 CellArrayGPU_readout(GPUcells, device)
-            end
+            #end
         end
-    end
+    #end
 end
 
 
@@ -167,6 +173,7 @@ function run_arrayofstruct_benchmarks()
     # This version can not take p as input yet
     N = 1
     vmax = 1.5f0
+    #M = 2^20
     for M in 2 .^ (8:30)
         @show M N StochasticSynapses.VAR_order
         print("Initializing cells...")
