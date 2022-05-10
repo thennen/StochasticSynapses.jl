@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/438966323.svg)](https://zenodo.org/badge/latestdoi/438966323)
+
 # StochasticSynapses.jl
 
 This is a Julia implementation of the stochastic synapse model described in [this paper](https://linktopaper)
