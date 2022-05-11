@@ -2,7 +2,7 @@
 
 # StochasticSynapses.jl
 
-This is a Julia implementation of the stochastic synapse model described in [this paper](https://linktopaper)
+This is a Julia implementation of the stochastic synapse model described in [this paper](https://arxiv.org/abs/2205.05053)
 
 ## Installation
 
