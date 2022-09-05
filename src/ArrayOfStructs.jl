@@ -10,7 +10,6 @@ but there's very little speed benefit and 32-bit are less convenient to work wit
 TODO:
 ⋅ Make model order changeable:
  CellState needs to take model order as a parameter
- We need VAR parameters for all the model orders readily available
 
 ⋅ is there a better way to store parameters other than globals with different names?
 =#
@@ -19,15 +18,15 @@ using StaticArrays: SVector, SMatrix, MVector, MMatrix
 using Parameters: @with_kw, @unpack
 
 ## Speed benefit from having some of the parameters in a different form (StaticArrays)
-const Γcoefs_ = SVector{nfeatures, SVector{Γorder, Float32}}([Γcoefs[i,:] for i in 1:nfeatures])
-
-const L_ = SMatrix{nfeatures, nfeatures, Float32}(params["L"]) * Lscale
+# But StaticArrays might not be beneficial for the GPU version (to be tested)
+# For now, just create new globals with _ appended
+const γ_ = SVector{nfeatures, SVector{γorder, Float32}}([γ[i,:] for i in 1:nfeatures])
+const L_ = SMatrix{nfeatures, nfeatures, Float32}(params["L"]) * √a
 const VAR_order = 10
 const VAR_params = params["VAR$(VAR_order)_model_parameters_Lamprey"]
-const VAR_intercept = SVector{nfeatures, Float32}(VAR_params[1, :])
+# const VAR_intercept = SVector{nfeatures, Float32}(VAR_params[1, :])
 const VAR_L = SMatrix{nfeatures, nfeatures, Float32}(VAR_params[2:5, :])
 const VAR_An = SVector{VAR_order, SMatrix{nfeatures, nfeatures, Float32}}([VAR_params[6+4*(n-1):6+4*(n-1)+3, :] for n in 1:VAR_order])
-
 const LLRSpoly_ = SVector{2, Float32}(LLRSpoly)
 const HHRSpoly_ = SVector{6, Float32}(HHRSpoly)
 
@@ -35,7 +34,7 @@ const HHRSpoly_ = SVector{6, Float32}(HHRSpoly)
 Transform data from standard normal to the measured distributions
 """
 function Γinv(x::SVector{4, Float32})
-    exp.(polyval.(Γcoefs_, x))
+    exp.(polyval.(γ_, x))
 end
 
 const μ0_ = Γinv(zeros(SVector{4, Float32}))
@@ -63,7 +62,6 @@ end
 Return a cell initialized in the HRS state.
 """
 function Cell()
-    #x = VAR_L * randn(Float32, nfeatures) + VAR_intercept
     x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
     X::MVector{VAR_order, SVector{nfeatures, Float32}}  = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
     X[1] = x
@@ -72,8 +70,6 @@ function Cell()
     r0 = r(y[iHRS])
     transitionPoly = zeros(SVector{3, Float32})
     c = CellState(X=X, y=y, s=s, r=r0)
-    #c.inHRS = true
-    #c.inLRS = false
     return c
 end
 
@@ -81,7 +77,6 @@ end
 Generate the next VAR vector
 """
 function VAR_sample(c::CellState)
-    #x = VAR_L * randn(Float32, nfeatures) + VAR_intercept
     x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
     for i in 1:VAR_order
         j = mod(c.n + 1 - i, VAR_order) + 1
@@ -109,15 +104,13 @@ end
 
 
 """
-Current as a function of voltage for the cell state
+Current as a function of voltage for the current cell state (r)
 """
-Istate(r::Float32, U::Float32) = (1-r) * polyval(LLRSpoly_, U) + r * polyval(HHRSpoly_, U)
+I(r::Float32, U::Float32) = (1-r) * polyval(LLRSpoly_, U) + r * polyval(HHRSpoly_, U)
+I(c::CellState, U::Float32) = I(c.r, U)
 
-Istate(c::CellState, U::Float32) = Istate(c.r, U)
-
-IHRS(c::CellState, U::Float32) = Istate(r(HRS(c)), U)
-
-ILRS(c::CellState, U::Float32) = Istate(r(LRS(c)), U)
+IHRS(c::CellState, U::Float32) = I(r(HRS(c)), U)
+ILRS(c::CellState, U::Float32) = I(r(LRS(c)), U)
 
 """
 Return coefficients of the second degree polynomial that connects (x1,y1) to (x2,y2)
@@ -149,9 +142,9 @@ Apply voltage U to a cell
 if U > UR or if U ≤ US, it may modify c state
 c is also returned
 """
-function applyVoltage!(c::CellState, U::Float32)
+function applyVoltage!(c::CellState, Ua::Float32)
     if !c.inLRS
-        if U < US(c)
+        if Ua < US(c)
             # SET
             c.r = r(LRS(c))
             c.inLRS = true
@@ -164,8 +157,8 @@ function applyVoltage!(c::CellState, U::Float32)
     end
 
     # By now we know we are not in HRS, so we might reset
-    if U > c.UR
-        full = U ≥ Umax
+    if Ua > c.UR
+        full = Ua ≥ Umax
         if c.inLRS # First reset
             c.inLRS = false
             # Calculate and store params for next cycle
@@ -178,7 +171,7 @@ function applyVoltage!(c::CellState, U::Float32)
                 # We will need the updated transition poly
                 x1 = UR(c)
                 x2 = Umax
-                y1 = Istate(c, x1)
+                y1 = I(c, x1)
                 c.y = Γinv(x) .* c.s
                 y2 = IHRS(c, x2)
                 c.transitionPoly = transitionParabola(x1,y1,y2)
@@ -192,9 +185,9 @@ function applyVoltage!(c::CellState, U::Float32)
             c.UR = Umax
         else
             # Partial RESET
-            Itrans = polyval(c.transitionPoly, U)
-            c.r = r(Itrans, U)
-            c.UR = U
+            Itrans = polyval(c.transitionPoly, Ua)
+            c.r = r(Itrans, Ua)
+            c.UR = Ua
         end
     end
     return c
@@ -203,24 +196,20 @@ end
 """
 ADC measurement including noise
 """
-function Ireadout(c::CellState, U::Float32=Ureadout, nbits::Int64=4, Imin::Float32=1f-6, Imax::Float32=1f-5, BW::Float32=1f8)
-    I = Istate(c, U)
-
+function Iread(c::CellState, U::Float32=Uread, nbits::Int64=4, Imin::Float32=1f-6, Imax::Float32=1f-5, BW::Float32=1f8)
+    Inoiseless = I(c, U)
     # Approximation of the thermodynamic noise
-    johnson = abs(4*kBT*BW*I/Ureadout)
-    shot = abs(2*e*I*BW)
-
+    johnson = abs(4*kBT*BW*Inoiseless/Uread)
+    shot = abs(2*e*Inoiseless*BW)
     # Digitization noise
     Irange = Imax - Imin
     nlevels = 2^nbits
     q = Irange / nlevels
     #ADC = q^2 / 12
-
     # Sample from total noise distribution
     #σ_total = √(johnson + shot + ADC)
     σ_total = √(johnson + shot)
-    I = I + randn(Float32) * σ_total
-
+    Iwithnoise = Inoiseless + randn(Float32) * σ_total
     # Return nearest quantization level?
-    return clamp(round((I - Imin) / q), 0, nlevels) * q + Imin
+    return clamp(round((Iwithnoise - Imin) / q), 0, nlevels) * q + Imin
 end

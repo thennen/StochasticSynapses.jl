@@ -19,10 +19,14 @@ See a short demo of the switching operation [here](https://www.youtube.com/watch
 ```julia
 using StochasticSynapses
 M = 2^20
+# Initialize a million cells
 cells = [Cell() for m in 1:M]
+# SET all cells to their low resistance state
+applyVoltage!.(cells, -2f0)
+# Apply random voltages to all cells
 voltages = randn(Float32, M)
 applyVoltage!.(cells, voltages)
-I = Ireadout.(cells)
+I = Iread.(cells)
 ```
 
 #### GPU version
@@ -34,5 +38,5 @@ p = 10
 cells = CellArrayGPU(M, p)
 voltages = CUDA.randn(M)
 applyVoltage!(cells, voltages)
-I = Ireadout(cells)
+I = Iread(cells)
 ```

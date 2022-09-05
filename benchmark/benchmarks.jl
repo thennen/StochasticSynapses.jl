@@ -31,7 +31,7 @@ function CellArrayCPU_readout(cells::CellArrayCPU)
     M = cells.M
     p = cells.p
     # Read repeatedly, results go into readout buffer cells.
-    bench = @benchmark Ireadout($cells)
+    bench = @benchmark Iread($cells)
     display(bench)
     write_benchmark(bench, :M=>M, :p=>p, :BLASthreads=>nthreads)
     return cells
@@ -61,7 +61,7 @@ function CellArrayGPU_readout(cells::CellArrayGPU, device=1)
     CUDA.device!(device)
     M = cells.M
     p = cells.p
-    bench = @benchmark CUDA.@sync Ireadout($cells)
+    bench = @benchmark CUDA.@sync Iread($cells)
     display(bench)
     write_benchmark(bench, :M=>M, :p=>p, :device=>CUDA.name(CUDA.device()))
     return cells
@@ -106,7 +106,7 @@ function Cell_readout(cells::Vector{StochasticSynapses.CellState})
     bench = @benchmark begin
                 @inbounds begin
                     @threads for i in eachindex($cells)
-                        $currents[i] = Ireadout($cells[i])
+                        $currents[i] = Iread($cells[i])
                     end
                 end
             end

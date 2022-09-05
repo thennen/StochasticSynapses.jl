@@ -13,20 +13,20 @@ using CUDA
 ########## Define our CPU and GPU types.  Constructor comes much later
 
 struct CellArrayCPU
-    M::Int64 # number of cells
-    p::Int64 # order of VAR model
-    X::Array{Float32, 2}    # 4(p+1) × M
-    Xbuf::Array{Float32, 2} # 4(p+1) × M
-    xn::Array{Float32, 2}   # 4 × M
-    s::Array{Float32, 2}    # 4 × M
-    y::Array{Float32, 2}    # 4 × M
-    r::Array{Float32, 1}    # M × 1
-    n::Array{UInt32, 1}     # M × 1
-    UR::Array{Float32, 1}   # M × 1
-    resetPoly::Array{Float32, 2} # M × 3
-    VARcoefs::Array{Float32, 2}         # 4 × 4(p+1)
-    γ::Array{Float32, 2}     # 4 × 6
-    Iread::Array{Float32, 1} # M × 1 readout buffer
+    M::Int64                     # scalar      (number of cells)
+    p::Int64                     # scalar      (order of VAR model)
+    X::Array{Float32, 2}         # 4(p+1) × M  (feature history and εₙ for all cells)
+    Xbuf::Array{Float32, 2}      # 4(p+1) × M  (buffer to improve efficiency of shift operation)
+    xn::Array{Float32, 2}        # 4 × M       (generated normal feature vectors ̂x*ₙ)
+    s::Array{Float32, 2}         # 4 × M       (DtD scale vectors)
+    y::Array{Float32, 2}         # 4 × M       (scaled feature vector)
+    r::Array{Float32, 1}         # M × 1       (device state variables)
+    n::Array{UInt32, 1}          # M × 1       (cycle numbers)
+    UR::Array{Float32, 1}        # M × 1       (voltage thresholds for reset switching)
+    resetPoly::Array{Float32, 2} # M × 3       (polynomial coefficients for reset transitions)
+    VARcoefs::Array{Float32, 2}  # 4 × 4(p+1)  (Ainv Ci and Ainv B concatenated)
+    γ::Array{Float32, 2}         # 4 × 6       (coefficients for the denormalizing transformation)
+    Iread::Array{Float32, 1}     # M × 1       (readout buffer)
     inHRS::BitVector
     inLRS::BitVector
     setMask::BitVector
@@ -100,17 +100,17 @@ end
 """
 Transform data from standard normal to the measured distributions
 """
-function Γinv(x::AbstractArray{Float32, 2}, γ::AbstractArray{Float32, 2}=Γcoefs)
+function Γinv(x::AbstractArray{Float32, 2}, γ::AbstractArray{Float32, 2}=γ)
     exp.(polyval(γ, x))
 end
 
 const μ0 = Γinv(zeros(Float32, nfeatures, 1))
 
 # Cleaner notation?
-# TODO: replace occurances of RHS with LHS
+# TODO: replace occurences of RHS with LHS
 HRS(c) = view(c.y, iHRS, :)
 LRS(c) = view(c.y, iLRS, :)
-US(c) = -view(c.y, iUS, :) # -view doesn't work
+US(c) = -view(c.y, iUS, :) # -view doesn't work, just makes a copy
 UR(c) = view(c.y, iUR, :)
 
 ######################################### 
@@ -141,18 +141,12 @@ Current as a function of voltage for the cell state
 
 # TODO: wouldn't this be better? problem is just that the orders of the polynomials are different
 # polyval(1-r * LLRSpoly + r * HHRSpoly, U)
-
-# I think only the second one is needed (does both)
 """
-#=
-function Istate(r::AbstractArray{Float32, 1}, U::AbstractArray{Float32, 1})
+function I(r::AbstractArray{Float32, 1}, U)
     (1 .- r) .* polyval(LLRSpoly, U) .+ r .* polyval(HHRSpoly, U)
 end
-=#
 
-function Istate(r::AbstractArray{Float32, 1}, U)
-    (1 .- r) .* polyval(LLRSpoly, U) .+ r .* polyval(HHRSpoly, U)
-end
+I(c, U) = I(c.r, U)
 
 function transitionParabola(x₁::AbstractArray{Float32, 1}, y₁::AbstractArray{Float32, 1}, y₂::AbstractArray{Float32, 1})
     x₂ = Umax
@@ -191,7 +185,6 @@ function CellArrayCPU(M::Int64=2^16, p::Int64=20)
   r0 = r.(y[iHRS, :])
   n = zeros(UInt32, M)
   UR = y[iUR, :]
-  γ = Γcoefs
   Iread = zeros(Float32, M)
   inHRS = trues(M)
   inLRS = falses(M)
@@ -218,20 +211,20 @@ end
 Apply voltage array U to the CellArray
 if U > UR or if U ≤ US, states will be modified
 """
-function applyVoltage!(c, U::AbstractArray{Float32, 1})
+function applyVoltage!(c, Ua::AbstractArray{Float32, 1})
     ### Create boolean masks for the different conditions
-    @. c.setMask = ~c.inLRS & (U ≤ -c.y[iUS, :])
-    @. c.resetMask = ~c.inHRS & (U > c.UR)
-    @. c.fullResetMask = c.resetMask & (U ≥ Umax)
-    @. c.partialResetMask = c.resetMask & (U < Umax)
+    c.setMask .= .~c.inLRS .& (Ua .≤ US(c))
+    @. c.resetMask = ~c.inHRS & (Ua > c.UR)
+    @. c.fullResetMask = c.resetMask & (Ua ≥ Umax)
+    @. c.partialResetMask = c.resetMask & (Ua < Umax)
     @. c.drawVARMask = c.inLRS & c.resetMask
     @. c.transCalcMask = c.drawVARMask & ~c.fullResetMask
 
     if any(c.setMask)
-        c.r .= ifelse.(c.setMask, r.(view(c.y, iLRS, :)), c.r)
+        c.r .= ifelse.(c.setMask, r.(LRS(c)), c.r)
         c.inLRS .|= c.setMask
         c.inHRS .= c.inHRS .& .!c.setMask
-        c.UR .= ifelse.(c.setMask, view(c.y, iUR, :), c.UR)
+        c.UR .= ifelse.(c.setMask, UR(c), c.UR)
     end
 
     if any(c.drawVARMask)
@@ -242,24 +235,24 @@ function applyVoltage!(c, U::AbstractArray{Float32, 1})
 
     if any(c.transCalcMask)
         x1 = c.UR
-        y1 = Istate(c.r, x1)
-        y2 = Istate(r.(c.y[iHRS, :]), Umax)
+        y1 = I(c.r, x1)
+        y2 = I(r.(c.y[iHRS, :]), Umax)
         c.resetPoly .= ifelse.(c.transCalcMask, transitionParabola(x1, y1, y2), c.resetPoly)
     end
 
     if any(c.resetMask)
         c.inLRS .= c.inLRS .& .!c.resetMask
-        c.UR .= ifelse.(c.resetMask, U, c.UR)
+        c.UR .= ifelse.(c.resetMask, Ua, c.UR)
     end
 
     if any(c.partialResetMask)
-        Itrans = polyval(c.resetPoly, U)
-        c.r .= ifelse.(c.partialResetMask, r(Itrans, U), c.r)
+        Itrans = polyval(c.resetPoly, Ua)
+        c.r .= ifelse.(c.partialResetMask, r(Itrans, Ua), c.r)
     end
 
     if any(c.fullResetMask)
         c.inHRS .|= c.fullResetMask
-        c.r .= ifelse.(c.fullResetMask, r.(c.y[iHRS, :]), c.r)
+        c.r .= ifelse.(c.fullResetMask, r.(HRS(c)), c.r)
     end
 
     return
@@ -271,14 +264,14 @@ across cells in an array, at a single voltage
 
 (actually mutates c by updating c.Iread..)
 """
-function Ireadout(c, U::Float32=Ureadout, nbits::Int=4, Imin::Float32=1f-6, Imax::Float32=1f-5, BW::Float32=1f8)
+function Iread(c, U::Float32=Uread, nbits::Int=4, Imin::Float32=1f-6, Imax::Float32=1f-5, BW::Float32=1f8)
     randn!(c.Iread)
-    I = Istate(c.r, U)
-    σ_total = @. √(4*kBT*BW*I/Ureadout + abs(2*e*I*BW))
+    Inoiseless = I(c.r, U)
+    σ_total = @. √(4*kBT*BW*Inoiseless/Uread + abs(2*e*Inoiseless*BW))
     Irange = Imax - Imin
     nlevels = 2^nbits
     q = Irange / nlevels
-    @. c.Iread = I + c.Iread * σ_total 
+    @. c.Iread = Inoiseless + c.Iread * σ_total 
     @. c.Iread = clamp(round((c.Iread - Imin) / q), 0, nlevels) * q + Imin
     return c.Iread
 end
