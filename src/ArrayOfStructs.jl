@@ -39,6 +39,30 @@ end
 
 const μ0_ = Γinv(zeros(SVector{4, Float32}))
 
+
+"""
+Struct of model parameters
+Should be able to use different model orders and different polynomial degrees
+
+Might need some kind of generated/parameterized type for that
+
+Then maybe CellState can be based on this type to get the p as well
+
+Could make this work with the CellArrays too?  needs a little different format..
+Maybe just need to define the conversion
+"""
+@with_kw struct CellParams
+    γ::SVector{nfeatures, SVector{γorder, Float32}}
+    a::Float32 = 1.0f0
+    L::SMatrix{nfeatures, nfeatures, Float32}
+    p::Int64 = 10
+    VAR_L::SMatrix{nfeatures, nfeatures, Float32}
+    VAR_An::SVector{}
+    LLRS::SVector{}
+    HHRS::SVector{}
+    Umax::Float32 = 1.5f0 #?
+end
+
 ###########################################
 
 """
@@ -55,7 +79,10 @@ Remembers history of n=order cycles
     UR::Float32 = 0
     inHRS::Bool = true
     inLRS::Bool = false
+    # params::CellParams = somedefault
 end
+
+
 
 """
 Return a cell initialized in the HRS state.
