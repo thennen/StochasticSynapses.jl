@@ -12,7 +12,7 @@ function polyval(coeffs::AbstractVector{Float32}, U::Float32)
     acc
 end
 
-const Uread = Float32(0.2) # Default voltage to perform readouts
+const Uread = Float32(0.2)    # Default voltage to perform readouts
 const Umax = Float32(1.5)     # The highest applied voltage in RESET direction during the experiment.
 # const σClip = Float32(3.5)
 const e = Float32(1.602176634e-19)
