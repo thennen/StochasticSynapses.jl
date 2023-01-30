@@ -5,8 +5,8 @@ Data in CellArrayCPU will run on CPU and data in CellArrayGPU will run on GPU
 All cells have to be addressed at once for read/write operations
 =#
 
-using Random # randn!
-using LinearAlgebra # mul!
+using Random: randn!
+using LinearAlgebra: mul!
 using NPZ: npzread
 using CUDA
 
