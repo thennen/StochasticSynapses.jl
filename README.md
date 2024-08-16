@@ -6,6 +6,8 @@ This is a Julia implementation of the stochastic synapse model described in [thi
 
 See a short demo of the switching operation [here](https://www.youtube.com/watch?v=Kk3HzDUP1Vg).
 
+This model has been superseded by [Synaptogen](https://github.com/thennen/Synaptogen).
+
 ## Installation
 
 ```julia
