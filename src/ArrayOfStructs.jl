@@ -22,11 +22,11 @@ using Parameters: @with_kw, @unpack
 # For now, just create new globals with _ appended
 const γ_ = SVector{nfeatures, SVector{γorder, Float32}}([γ[i,:] for i in 1:nfeatures])
 const L_ = SMatrix{nfeatures, nfeatures, Float32}(params["L"]) * √a
-const VAR_order = 10
-const VAR_params = params["VAR$(VAR_order)_model_parameters_Lamprey"]
+const p = 10
+const VAR_params = params["VAR$(p)_model_parameters_Lamprey"]
 # const VAR_intercept = SVector{nfeatures, Float32}(VAR_params[1, :])
 const VAR_L = SMatrix{nfeatures, nfeatures, Float32}(VAR_params[2:5, :])
-const VAR_An = SVector{VAR_order, SMatrix{nfeatures, nfeatures, Float32}}([VAR_params[6+4*(n-1):6+4*(n-1)+3, :] for n in 1:VAR_order])
+const VAR_An = SVector{p, SMatrix{nfeatures, nfeatures, Float32}}([VAR_params[6+4*(n-1):6+4*(n-1)+3, :] for n in 1:p])
 const LLRSpoly_ = SVector{2, Float32}(LLRSpoly)
 const HHRSpoly_ = SVector{6, Float32}(HHRSpoly)
 
@@ -46,7 +46,7 @@ Stores the state of each individual cell
 Remembers history of n=order cycles
 """
 @with_kw mutable struct CellState
-    X::MVector{VAR_order, SVector{nfeatures, Float32}} = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
+    X::MVector{p, SVector{nfeatures, Float32}} = [zeros(SVector{nfeatures, Float32}) for n in 1:p]
     y::SVector{nfeatures, Float32} = zeros(SVector{nfeatures, Float32})
     s::SVector{nfeatures, Float32} = ones(SVector{nfeatures, Float32})
     transitionPoly::SVector{3, Float32} = zeros(SVector{3, Float32})
@@ -57,13 +57,12 @@ Remembers history of n=order cycles
     inLRS::Bool = false
 end
 
-
 """
 Return a cell initialized in the HRS state.
 """
 function Cell()
     x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
-    X::MVector{VAR_order, SVector{nfeatures, Float32}}  = [zeros(SVector{nfeatures, Float32}) for n in 1:VAR_order]
+    X::MVector{p, SVector{nfeatures, Float32}}  = [zeros(SVector{nfeatures, Float32}) for n in 1:p]
     X[1] = x
     s = Γinv(L_ * randn(SVector{nfeatures, Float32})) ./ μ0_
     y = Γinv(x) .* s
@@ -78,8 +77,8 @@ Generate the next VAR vector
 """
 function VAR_sample(c::CellState)
     x = VAR_L * randn(SVector{nfeatures, Float32}) # + VAR_intercept
-    for i in 1:VAR_order
-        j = mod(c.n + 1 - i, VAR_order) + 1
+    for i in 1:p
+        j = mod(c.n + 1 - i, p) + 1
         @inbounds x += VAR_An[i] * c.X[j]
     end
     return x
@@ -164,7 +163,7 @@ function applyVoltage!(c::CellState, Ua::Float32)
             # Calculate and store params for next cycle
             x = VAR_sample(c)
             c.n += 1
-            @inbounds c.X[mod(c.n, VAR_order) + 1] = x
+            @inbounds c.X[mod(c.n, p) + 1] = x
             if full
                 c.y = Γinv(x) .* c.s
             else
